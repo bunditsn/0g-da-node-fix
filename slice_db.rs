@@ -201,37 +201,39 @@ impl SliceDB for Storage {
     }
 
     async fn get_epoch_info(&self, epoch: u64) -> Result<BTreeSet<BlobInfo>> {
-        let prefix: Vec<u8> = once(BLOB_PREFIX).chain(epoch.to_be_bytes()).collect();
+    let prefix: Vec<u8> = once(BLOB_PREFIX).chain(epoch.to_be_bytes()).collect();
 
-        let mut answer = BTreeSet::new();
+    let mut answer = BTreeSet::new();
 
-        for item in KeyValueDB::iter_with_prefix(&*self.db, COL_SLICE, &prefix) {
-            let (key, value) = item?;
-            if key.len() != 1 + 8 + 8 + 32 {
-                bail!("Incorrect key format");
-            }
-            let mut key_slice = &key.as_ref()[9..];
-
-            let quorum_id = {
-                let (cur, rest) = key_slice.split_first_chunk::<8>().unwrap();
-                key_slice = rest;
-                u64::from_be_bytes(*cur)
-            };
-
-            let storage_root = {
-                let (cur, rest) = key_slice.split_first_chunk::<32>().unwrap();
-                assert!(rest.is_empty());
-                *cur
-            };
-
-            let indicies: Vec<u16> = bcs::from_bytes(&value)?;
-            answer.insert(BlobInfo {
-                quorum_id,
-                storage_root,
-                indicies,
-            });
+    for item in KeyValueDB::iter_with_prefix(&*self.db, COL_SLICE, &prefix) {
+        let (key, value) = item?;
+        if key.len() != 1 + 8 + 8 + 32 {
+            bail!("Incorrect key format");
         }
+        let mut key_slice = &key.as_ref()[9..];
 
-        Ok(answer)
+        let quorum_id = {
+            let (cur, rest) = key_slice.split_at(8);
+            key_slice = rest;
+            let cur: &[u8; 8] = cur.try_into().expect("slice with incorrect length");
+            u64::from_be_bytes(*cur)
+        };
+
+        let storage_root = {
+            let (cur, rest) = key_slice.split_at(32);
+            assert!(rest.is_empty());
+            let cur: &[u8; 32] = cur.try_into().expect("slice with incorrect length");
+            *cur
+        };
+
+        let indicies: Vec<u16> = bcs::from_bytes(&value)?;
+        answer.insert(BlobInfo {
+            quorum_id,
+            storage_root,
+            indicies,
+        });
+    }
+
+    Ok(answer)
     }
 }
